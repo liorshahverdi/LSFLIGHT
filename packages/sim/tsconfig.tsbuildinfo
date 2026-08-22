@@ -1,1 +1,1 @@
-{"root":["./src/index.ts","./src/core/clock.ts","./src/core/snapshot.ts","./src/core/world.ts","./src/physics/frames.ts","./src/random/rng.ts"],"version":"5.9.3"}
+{"root":["./src/index.ts","./src/core/clock.ts","./src/core/snapshot.ts","./src/core/world.ts","./src/physics/atmosphere.ts","./src/physics/frames.ts","./src/physics/rigidbody.ts","./src/random/rng.ts"],"version":"5.9.3"}
