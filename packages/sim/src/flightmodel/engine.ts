@@ -17,6 +17,8 @@ export interface JetEngineConfig {
   fuelBurnMilitaryKgS: number;
   /** Required if afterburnerThrustN is set. */
   fuelBurnAfterburnerKgS?: number;
+  /** Prop-like falloff: thrust *= max(0, 1 - v/falloff). Optional. */
+  thrustFalloffVPerS?: number;
 }
 
 export interface JetEngine {
@@ -50,6 +52,8 @@ export function stepEngine(
   cmd: EngineCommand,
   altM: number,
   dt: number,
+  /** Airspeed in m/s for prop-style falloff (previous tick's value is fine). */
+  airspeed = 0,
 ): EngineOutput {
   const c = e.config;
   const throttle = Math.min(1, Math.max(0, cmd.throttle));
@@ -67,10 +71,15 @@ export function stepEngine(
 
   const sigma = airDensity(altM) / RHO0;
   const lapse = Math.pow(sigma, LAPSE_EXP);
-  let thrustN = c.militaryThrustN * throttle * lapse;
+  const speedFactor =
+    c.thrustFalloffVPerS !== undefined
+      ? Math.max(0, Math.min(1, 1 - airspeed / c.thrustFalloffVPerS))
+      : 1;
+  let thrustN = c.militaryThrustN * throttle * lapse * speedFactor;
 
   let abLit = false;
   if (abWanted && e.fuelKg > 0) {
+    // Afterburner ignores prop-style falloff (jet-only feature).
     thrustN = abThrustN * lapse;
     abLit = true;
   }

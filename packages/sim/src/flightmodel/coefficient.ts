@@ -28,10 +28,16 @@ export interface AeroCoeffs {
   /** Restoring-torque stability coefficients (YSFlight CPITSTAB/CYAWSTAB style). */
   pitchStab: number;
   yawStab: number;
+  /** AoA the airframe is trimmed to hold; stability restores THIS, not zero. */
+  trimAoADeg: number;
   /** Control-torque maneuverability coefficients (CPITMANE/CYAWMANE/CROLLMAN style). */
   pitchManeuver: number;
   yawManeuver: number;
   rollManeuver: number;
+  /** Rotational damping per axis, torque = -qBar * damp * rate (rad/s). */
+  pitchDamp: number;
+  yawDamp: number;
+  rollDamp: number;
   /** Dynamic-pressure cap for control authority, Pa. */
   qBarCapPa: number;
 }
@@ -73,11 +79,18 @@ export function liftCoefficient(aoaDeg: number, c: AeroCoeffs): number {
   return clLinear;
 }
 
+export interface AngularRates {
+  pitchRateRadS?: number;
+  yawRateRadS?: number;
+  rollRateRadS?: number;
+}
+
 export function computeAeroForces(
   airflow: AirflowState,
   altM: number,
   c: AeroCoeffs,
   controls: ControlSurfaces = {},
+  rates: AngularRates = {},
 ): AeroResult {
   const rho = airDensity(altM);
   const v = airflow.airspeed;
@@ -102,38 +115,59 @@ export function computeAeroForces(
   const cl = liftCoefficient(airflow.aoaDeg, c);
   const cd = c.cd0 + c.inducedDragK * cl * cl;
 
-  const liftN = qBar * S * cl;
-  const dragN = qBar * S * cd;
+  // Lift/drag/stability use the UNCAPPED dynamic pressure; only control and
+  // damping torques are capped (authority limit), otherwise high-speed flight
+  // loses lift and dives away.
+  const liftN = qBarRaw * S * cl;
+  const dragN = qBarRaw * S * cd;
 
-  // Lift acts along body +Y rotated back by AoA (approximation of the flow
-  // axes): sin/cos split into body Y (up) and Z (back) components.
-  const liftY = liftN * Math.cos(aoaRad);
-  const liftZ = liftN * Math.sin(aoaRad); // positive AoA tilts lift forward(-Z)
+  // Wind-axes force assembly: drag exactly opposes the relative wind,
+  // lift is perpendicular to it (tilted by AoA in the body Y-Z plane).
+  const vb = airflow.velBody ?? { x: 0, y: 0, z: 0 };
+  const invV = 1 / v;
+  const px = vb.x * invV;
+  const py = vb.y * invV;
+  const pz = vb.z * invV;
+
+  // Fuselage/body drag on perpendicular airflow: this is what rotates the
+  // velocity vector toward the nose (speed stability). Without it, aoa/slip
+  // are undamped and flight paths drift.
+  const FUSE_AREA_M2 = 2;
+  const fuseDragX = -0.5 * rho * Math.abs(vb.x) * vb.x * FUSE_AREA_M2;
+  const fuseDragY = -0.5 * rho * Math.abs(vb.y) * vb.y * FUSE_AREA_M2;
 
   const forceBody = {
-    x: 0,
-    y: liftY,
-    z: liftZ - dragN, // drag always opposes motion along body -Z
+    x: -px * dragN + fuseDragX,
+    y: liftN * Math.cos(aoaRad) - py * dragN + fuseDragY,
+    z: -liftN * Math.sin(aoaRad) - pz * dragN,
   };
 
   // --- Torques (body frame: x pitch, y yaw, z roll) -----------------------
-  const aoaOff = airflow.aoaDeg * DEG2RAD;
+  const aoaOff = (airflow.aoaDeg - c.trimAoADeg) * DEG2RAD; // restore trim, not zero
   const slipOff = airflow.slipDeg * DEG2RAD;
-  const pitchStabTorque = -qBar * c.pitchStab * aoaOff; // +AoA -> nose down
-  const yawStabTorque = qBar * c.yawStab * slipOff; // +slip (wind from right) -> yaw right, reduces slip
+  const pitchStabTorque = -qBarRaw * c.pitchStab * aoaOff; // +AoA -> nose down
+  const yawStabTorque = qBarRaw * c.yawStab * slipOff; // +slip (wind from right) -> yaw right, reduces slip
 
-  const pitchCtrlTorque = qBar * c.pitchManeuver * (controls.elevator ?? 0) * 0.01;
-  const rollCtrlTorque = qBar * c.rollManeuver * (controls.aileron ?? 0) * 0.01;
-  const yawCtrlTorque = qBar * c.yawManeuver * (controls.rudder ?? 0) * 0.01;
+  // Control gain: full throw must be able to exceed the stall AoA
+  // (equilibrium AoA ~= maneuver/stab * gain = 0.3 rad = 17 deg > 16 deg crit).
+  const CTRL_GAIN = 0.15;
+  const pitchCtrlTorque = qBar * c.pitchManeuver * (controls.elevator ?? 0) * CTRL_GAIN;
+  const rollCtrlTorque = qBar * c.rollManeuver * (controls.aileron ?? 0) * CTRL_GAIN;
+  const yawCtrlTorque = qBar * c.yawManeuver * (controls.rudder ?? 0) * CTRL_GAIN;
+
+  // Rotational damping (FLT-312 analog): opposes angular rates.
+  const pitchDampTorque = -qBar * c.pitchDamp * 0.01 * (rates.pitchRateRadS ?? 0);
+  const yawDampTorque = -qBar * c.yawDamp * 0.01 * (rates.yawRateRadS ?? 0);
+  const rollDampTorque = -qBar * c.rollDamp * 0.01 * (rates.rollRateRadS ?? 0);
 
   return {
     forceBody,
     dragN,
     liftN,
     torqueBody: {
-      x: pitchStabTorque + pitchCtrlTorque,
-      y: yawStabTorque + yawCtrlTorque,
-      z: rollCtrlTorque,
+      x: pitchStabTorque + pitchCtrlTorque + pitchDampTorque,
+      y: yawStabTorque + yawCtrlTorque + yawDampTorque,
+      z: rollCtrlTorque + rollDampTorque,
     },
     qBar,
     cl,

@@ -18,9 +18,13 @@ const TRAINER: AeroCoeffs = {
   inducedDragK: 0.04,
   pitchStab: 2.0,
   yawStab: 3.0,
+  trimAoADeg: 0,
   pitchManeuver: 5.0,
   yawManeuver: 5.0,
   rollManeuver: 3.0,
+  pitchDamp: 8.0,
+  yawDamp: 10.0,
+  rollDamp: 5.0,
   qBarCapPa: 15_000,
 };
 
@@ -105,8 +109,10 @@ describe("Aerodynamic forces (FLT-204)", () => {
   });
 
   it("control authority is capped at high speed (no infinite hardover)", () => {
-    const vFast = computeAeroForces({ ...cruise, airspeed: 200 }, 0, TRAINER, { elevator: 1 });
-    const vFaster = computeAeroForces({ ...cruise, airspeed: 400 }, 0, TRAINER, { elevator: 1 });
+    // Isolate control torque: hold AoA at trim so stability torque is zero.
+    const atTrim = { ...cruise, aoaDeg: TRAINER.trimAoADeg };
+    const vFast = computeAeroForces({ ...atTrim, airspeed: 200 }, 0, TRAINER, { elevator: 1 });
+    const vFaster = computeAeroForces({ ...atTrim, airspeed: 400 }, 0, TRAINER, { elevator: 1 });
     expect(vFaster.torqueBody.x / vFast.torqueBody.x).toBeCloseTo(1, 5);
   });
 

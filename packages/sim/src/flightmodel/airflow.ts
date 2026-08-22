@@ -18,6 +18,8 @@ export interface AirflowState {
   slipDeg: number;
   /** Mach number at current altitude. */
   mach: number;
+  /** Velocity in the body frame (m/s): x right, y up, z forward(-). */
+  velBody: { x: number; y: number; z: number };
 }
 
 export interface AirflowInput {
@@ -62,5 +64,5 @@ export function computeAirflow(input: AirflowInput): AirflowState {
   }
 
   const mach = airspeed / speedOfSound(input.altM);
-  return { airspeed, aoaDeg, slipDeg, mach };
+  return { airspeed, aoaDeg, slipDeg, mach, velBody: vb };
 }

@@ -71,6 +71,23 @@ describe("Jet engine model (FLT-206)", () => {
     expect(last.thrustN).toBe(0);
   });
 
+  it("speed falloff (prop-like): thrust decreases with airspeed", () => {
+    const mk = () =>
+      createJetEngine({
+        militaryThrustN: 20_000,
+        fuelCapacityKg: 1_000_000,
+        fuelBurnMilitaryKgS: 0.001,
+        thrustFalloffVPerS: 120,
+      });
+    const t0 = stepEngine(mk(), { throttle: 1, afterburner: false }, 0, DT, 0).thrustN;
+    const t60 = stepEngine(mk(), { throttle: 1, afterburner: false }, 0, DT, 60).thrustN;
+    const t120 = stepEngine(mk(), { throttle: 1, afterburner: false }, 0, DT, 120).thrustN;
+    expect(t0).toBeCloseTo(20_000, 6);
+    expect(t60).toBeCloseTo(10_000, 6);
+    expect(t120).toBe(0);
+    expect(t60).toBeLessThan(t0);
+  });
+
   it("AB burns fuel much faster than military power", () => {
     const a = makeJet();
     for (let i = 0; i < 600; i++) stepEngine(a, { throttle: 1, afterburner: true }, 0, DT);
