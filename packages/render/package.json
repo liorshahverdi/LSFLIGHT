@@ -1,0 +1,11 @@
+{
+  "name": "@lsflight/render",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.js",
+  "dependencies": {
+    "three": "^0.171.0"
+  }
+}

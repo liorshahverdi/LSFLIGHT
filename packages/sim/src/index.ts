@@ -13,3 +13,4 @@ export { SimRng } from "./random/rng.js";
 export * from "./physics/frames.js";
 export * from "./physics/rigidbody.js";
 export * from "./physics/atmosphere.js";
+export { createTrainer, TRAINER_AERO, type TrainerAircraft } from "./aircraft/trainer.js";

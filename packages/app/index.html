@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LSFlight v0.1</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+      }
+      #app {
+        width: 100vw;
+        height: 100vh;
+      }
+      #hud {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        font:
+          14px/1.5 ui-monospace,
+          Menlo,
+          monospace;
+        color: #cfe8cf;
+        background: rgba(0, 0, 0, 0.45);
+        padding: 10px 14px;
+        border-radius: 6px;
+        white-space: pre;
+      }
+      #help {
+        position: fixed;
+        bottom: 16px;
+        left: 16px;
+        font:
+          12px/1.6 ui-monospace,
+          Menlo,
+          monospace;
+        color: #ffffffaa;
+        background: rgba(0, 0, 0, 0.35);
+        padding: 8px 12px;
+        border-radius: 6px;
+        white-space: pre;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud"></div>
+    <div id="help">W/S pitch · A/D roll · Q/E yaw · Shift/Ctrl throttle</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
