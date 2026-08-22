@@ -14,6 +14,13 @@ const FIXED_DT = 1 / 60;
 const container = document.getElementById("app")!;
 const hud = document.getElementById("hud")!;
 const renderer = new FlightRenderer(container);
+// Load the converted Cessna 172R (YSFlight runtime model).
+fetch("assets/generated/models/cessna172r.mesh.json")
+  .then((r) => r.json())
+  .then((doc) => {
+    if (!renderer.setModel(doc)) console.error("invalid mesh document");
+  })
+  .catch(() => console.warn("model not loaded; using placeholder"));
 
 // Parked on the runway, cold-ish: idle throttle, brakes on until released.
 const ac = createTrainer({

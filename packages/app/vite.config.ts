@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   root: new URL(".", import.meta.url).pathname,
+  publicDir: new URL("../../assets/generated", import.meta.url).pathname,
   resolve: {
     alias: [
       {

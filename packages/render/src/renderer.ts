@@ -3,6 +3,7 @@
  * Consumes read-only transform state; never mutates simulation data.
  */
 import * as THREE from "three";
+import { meshDocToGeometry, validateMeshDoc, type MeshDoc } from "./mesh.js";
 import { chaseCameraPose, type CameraPose } from "./chase-camera.js";
 
 export interface RenderState {
@@ -126,6 +127,19 @@ export class FlightRenderer {
     this.camera.lookAt(this.target);
 
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * Replace the placeholder aircraft with a converted YSFlight model.
+   * Falls back to the placeholder if the doc is invalid.
+   */
+  setModel(doc: unknown): boolean {
+    if (!validateMeshDoc(doc)) return false;
+    const geo = meshDocToGeometry(doc as MeshDoc);
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    this.aircraft.clear();
+    this.aircraft.add(new THREE.Mesh(geo, mat));
+    return true;
   }
 
   private onResize(): void {

@@ -1,1 +1,1 @@
-{"root":["./src/chase-camera.ts","./src/index.ts","./src/renderer.ts"],"version":"5.9.3"}
+{"root":["./src/chase-camera.ts","./src/index.ts","./src/mesh.ts","./src/renderer.ts"],"version":"5.9.3"}
