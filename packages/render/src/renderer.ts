@@ -33,6 +33,24 @@ function makeAircraftMesh(): THREE.Group {
   stab.position.z = 3;
   g.add(stab);
 
+  // Landing gear: struts + wheels (visible, fixed tricycle).
+  const strutMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+  const wheelMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
+  const wheelGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.18, 12);
+  for (const [x, y, z] of [
+    [-1.5, -1.0, 0.25],
+    [1.5, -1.0, 0.25],
+    [0, -0.9, -2],
+  ] as const) {
+    const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.55, 8), strutMat);
+    strut.position.set(x, y + 0.25, z);
+    g.add(strut);
+    const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(x, y, z);
+    g.add(wheel);
+  }
+
   // Nose prop disc hint.
   const prop = new THREE.Mesh(
     new THREE.CircleGeometry(0.95, 24),
