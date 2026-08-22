@@ -1,0 +1,14 @@
+# Test fixtures — minimal YSFlight-style aircraft .dat
+REM trainer test aircraft
+IDENTIFY "TEST_TRAINER"
+CATEGORY TRAINER
+THRMILIT  2.0t
+WEIGHCLN  1.1t
+COCKPITP  0.0m 1.0m 2.0m
+LEFTGEAR -1.5m -1.2m -0.5m
+RIGHGEAR  1.5m -1.2m -0.5m
+WHELGEAR  0.2m -1.1m  2.0m
+CPITSTAB 2.0
+CROLLMAN 3.0
+HRDPOINT 1.0m -0.5m 0.0m RKT FLR
+HRDPOINT -1.0m -0.5m 0.0m RKT FLR

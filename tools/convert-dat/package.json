@@ -1,0 +1,14 @@
+{
+  "name": "@lsflight/convert-dat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.js",
+  "bin": {
+    "convert-dat": "dist/cli.js"
+  },
+  "scripts": {
+    "test": "vitest run"
+  }
+}
