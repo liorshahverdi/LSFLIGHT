@@ -7,13 +7,7 @@
  *  - angVel, torqueAccum: BODY frame
  *  - inertia: diagonal approximation (pitch=x, yaw=y, roll=z)
  */
-import {
-  quatIdentity,
-  quatMultiply,
-  quatNormalize,
-  type Quat,
-  type Vec3,
-} from "./frames.js";
+import { quatIdentity, quatMultiply, quatNormalize, type Quat, type Vec3 } from "./frames.js";
 
 export interface RigidBody {
   mass: number;

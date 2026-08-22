@@ -50,9 +50,7 @@ describe("World entity registry (FLT-102)", () => {
 
   it("removal during iteration is safe and order-stable", () => {
     const world = makeWorld();
-    const ids = Array.from({ length: 5 }, () =>
-      world.spawn({ id: 0, kind: "projectile", alive: true }).id,
-    );
+    Array.from({ length: 5 }, () => world.spawn({ id: 0, kind: "projectile", alive: true }).id);
     const removed: number[] = [];
     for (const e of world.all()) {
       if (e.id % 2 === 1) {

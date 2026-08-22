@@ -29,7 +29,6 @@ describe("SimRng (FLT-104)", () => {
 
   it("range and int helpers stay within bounds and are seed-reproducible", () => {
     const a = new SimRng(7);
-    const b = new SimRng(7);
     for (let i = 0; i < 500; i++) {
       const f = a.range(-2, 5);
       expect(f).toBeGreaterThanOrEqual(-2);

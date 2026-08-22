@@ -6,19 +6,19 @@
 
 **Codebase stats (~200k lines C++, last commit Aug 2022):**
 
-| Module | Size | What it is |
-|---|---|---|
-| `core/` | 83k lines | The simulator: `FsSimulation::SimulateOneStep` (fixed-step loop), entities (`fsexistence`), weapons, HUD, ATC, network (**fsnetwork.cpp alone is 248k chars**) |
-| `dynamics/` | 1.1k | Air density model, **realistic** propeller/jet physics |
-| `vehicle/` | 17k | Aircraft/ground property parsing — `fsairplaneproperty.cpp` is a 227k-char monster |
-| `autopilot/` | 23k | AI as composable autopilots: TakeOff, Landing, Dogfight, Formation, GroundAttack, Airshow — all output through normal flight controls |
-| `scenery/` | 25k | World/scenery format + renderers for OpenGL1/2/D3D |
-| `graphics/`, `gui/`, `platform/` | ~29k | Rendering & the custom GUI library; author himself calls platform "Nightmare" and graphics "nearly dead" |
+| Module                           | Size      | What it is                                                                                                                                                     |
+| -------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core/`                          | 83k lines | The simulator: `FsSimulation::SimulateOneStep` (fixed-step loop), entities (`fsexistence`), weapons, HUD, ATC, network (**fsnetwork.cpp alone is 248k chars**) |
+| `dynamics/`                      | 1.1k      | Air density model, **realistic** propeller/jet physics                                                                                                         |
+| `vehicle/`                       | 17k       | Aircraft/ground property parsing — `fsairplaneproperty.cpp` is a 227k-char monster                                                                             |
+| `autopilot/`                     | 23k       | AI as composable autopilots: TakeOff, Landing, Dogfight, Formation, GroundAttack, Airshow — all output through normal flight controls                          |
+| `scenery/`                       | 25k       | World/scenery format + renderers for OpenGL1/2/D3D                                                                                                             |
+| `graphics/`, `gui/`, `platform/` | ~29k      | Rendering & the custom GUI library; author himself calls platform "Nightmare" and graphics "nearly dead"                                                       |
 
 **Key takeaways from the code:**
 
 1. **The architecture validates the original plan.** YSFlight already does what docs/plan.md proposed: sim core independent of rendering, data-driven aircraft (`.dat` text format), AI via autopilot classes emitting control inputs, headless server mode (`main_consvr`).
-2. **The flight model is *simplified*, not real aerodynamics.** Aircraft `.dat` files use maneuverability/stability constants (`CPITSTAB 2.0`, `CROLLMAN 3.0`) rather than CL/CD curves. This is actually *great* for a web port — much easier to port to JS than a full 6DOF aero model.
+2. **The flight model is _simplified_, not real aerodynamics.** Aircraft `.dat` files use maneuverability/stability constants (`CPITSTAB 2.0`, `CROLLMAN 3.0`) rather than CL/CD curves. This is actually _great_ for a web port — much easier to port to JS than a full 6DOF aero model.
 3. **All content ships in `runtime/`:** 100+ aircraft `.dat` files, `.dnm` polygon models, `.fld` terrain, `.stp` scenery, missions. It's a ready-made content library under permissive terms.
 4. **The mess is concentrated where we don't want to go:** rendering backends, the custom GUI lib, iOS remnants, home-rolled containers instead of STL, and monolithic 100–330k-char files. The README admits it was released uncleaned.
 5. There's a plugin API, replay system, and mission/sim-extension system (`fssimextension_*` — intercept, racing, CAS) worth mining for design patterns.

@@ -79,11 +79,7 @@ function lengthM(token: string): number {
 
 function vec3m(tokens: string[], context: string): [number, number, number] {
   if (tokens.length < 3) throw new Error(`convert: ${context} needs 3 values`);
-  return [
-    lengthM(tokens[0] as string),
-    lengthM(tokens[1] as string),
-    lengthM(tokens[2] as string),
-  ];
+  return [lengthM(tokens[0] as string), lengthM(tokens[1] as string), lengthM(tokens[2] as string)];
 }
 
 function massKg(token: string): number {
@@ -158,7 +154,10 @@ export function convertAircraft(source: string): {
   if (hps.length > 0) {
     a.hardpoints = hps.map((values) => ({
       posM: vec3m(values.slice(0, 3), "HRDPOINT"),
-      weapons: values.slice(3).filter((t) => !/^(B\d+|B\d+HD)$/i.test(t)).map((t) => t.toUpperCase()),
+      weapons: values
+        .slice(3)
+        .filter((t) => !/^(B\d+|B\d+HD)$/i.test(t))
+        .map((t) => t.toUpperCase()),
     }));
   }
 
@@ -166,5 +165,8 @@ export function convertAircraft(source: string): {
 }
 
 function slug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
 }

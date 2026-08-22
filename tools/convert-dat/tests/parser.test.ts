@@ -52,15 +52,7 @@ describe("tokenizeDat (FLT-301)", () => {
   it("records multi-token hardpoints intact", () => {
     const records = tokenizeDat(SAMPLE);
     const hp = records.find((r) => r.key === "HRDPOINT");
-    expect(hp?.values).toEqual([
-      "4.1m",
-      "-1.2m",
-      "-1.5m",
-      "AGM65",
-      "B500",
-      "B250",
-      "B500HD",
-    ]);
+    expect(hp?.values).toEqual(["4.1m", "-1.2m", "-1.5m", "AGM65", "B500", "B250", "B500HD"]);
   });
 });
 

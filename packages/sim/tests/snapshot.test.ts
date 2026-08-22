@@ -40,8 +40,16 @@ describe("Snapshot & hash (FLT-105)", () => {
   it("hashes are stable across runs (deterministic serialization)", () => {
     const clock = new SimClock(1 / 60);
     for (let i = 0; i < 60; i++) clock.step();
-    const s1 = { tick: clock.tick, time: clock.time, entities: snapshotWorld(makeWorld()).entities };
-    const s2 = { tick: clock.tick, time: clock.time, entities: snapshotWorld(makeWorld()).entities };
+    const s1 = {
+      tick: clock.tick,
+      time: clock.time,
+      entities: snapshotWorld(makeWorld()).entities,
+    };
+    const s2 = {
+      tick: clock.tick,
+      time: clock.time,
+      entities: snapshotWorld(makeWorld()).entities,
+    };
     expect(hashSnapshot(s1)).toBe(hashSnapshot(s2));
   });
 
