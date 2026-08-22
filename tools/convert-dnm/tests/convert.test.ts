@@ -35,8 +35,8 @@ describe("convertDnm (FLT-303)", () => {
 
   it("winding is reversed along with the axis flip (normals stay outward)", () => {
     const m = convertDnm(fixture("minimal.dnm")).mesh;
-    // First face was (1,3,2) in dnm -> becomes (1,3,2) reversed = (2,3,1)
-    expect(m.indices.slice(0, 3)).toEqual([2, 3, 1]);
+    // First face (1,3,2) 0-based (0,2,1); reversal swaps the last two -> (0,1,2).
+    expect(m.indices.slice(0, 3)).toEqual([0, 1, 2]);
   });
 
   it("output is JSON-stable across runs", () => {
