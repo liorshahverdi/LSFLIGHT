@@ -13,7 +13,13 @@ const FIXED_DT = 1 / 60;
 // --- Boot ---------------------------------------------------------------
 const container = document.getElementById("app")!;
 const hud = document.getElementById("hud")!;
-const renderer = new FlightRenderer(container);
+let renderer: FlightRenderer | undefined;
+try {
+  renderer = new FlightRenderer(container);
+} catch (err) {
+  // Headless/CI may lack WebGL; HUD-only mode keeps the sim testable.
+  console.warn("WebGL unavailable, running HUD-only", err);
+}
 // Load the converted Cessna 172R (YSFlight runtime model).
 fetch("assets/generated/models/cessna172r.mesh.json")
   .then((r) => r.json())
@@ -69,7 +75,7 @@ function frame(now: number): void {
   const flying = ac.body.pos.y > 2.5 && Math.abs(ac.body.vel.y) > 0.4;
   airborneTime = flying ? airborneTime + elapsed : 0;
 
-  renderer.sync(ac.body);
+  renderer?.sync(ac.body);
 
   hudTimer += elapsed;
   if (hudTimer > 0.2) {
