@@ -6,6 +6,16 @@ import * as THREE from "three";
 import { meshDocToGeometry, validateMeshDoc, type MeshDoc } from "./mesh.js";
 import { chaseCameraPose, type CameraPose } from "./chase-camera.js";
 
+/** Heightfield grid data (subset of convert-fld output). */
+export interface RenderHeightfieldGrid {
+  nx: number;
+  nz: number;
+  xWidM: number;
+  zWidM: number;
+  origin: { x: number; z: number };
+  elevationsM: number[];
+}
+
 export interface RenderState {
   pos: { x: number; y: number; z: number };
   att: { x: number; y: number; z: number; w: number };
@@ -68,6 +78,7 @@ export class FlightRenderer {
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
   private readonly aircraft = makeAircraftMesh();
+  private readonly groundPlane!: THREE.Mesh;
   private readonly target = new THREE.Vector3();
   private pose: CameraPose | undefined;
 
@@ -94,13 +105,13 @@ export class FlightRenderer {
     this.scene.add(sun);
 
     // Ground plane (placeholder until converted terrain lands, FLT-601).
-    const ground = new THREE.Mesh(
+    this.groundPlane = new THREE.Mesh(
       new THREE.PlaneGeometry(40000, 40000),
       new THREE.MeshLambertMaterial({ color: 0x5a8a4a }),
     );
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.05;
-    this.scene.add(ground);
+    this.groundPlane.rotation.x = -Math.PI / 2;
+    this.groundPlane.position.y = -0.05;
+    this.scene.add(this.groundPlane);
 
     // Runway-ish strip for orientation.
     const strip = new THREE.Mesh(
@@ -114,6 +125,77 @@ export class FlightRenderer {
     this.scene.add(this.aircraft);
 
     window.addEventListener("resize", () => this.onResize());
+  }
+
+  /**
+   * Build terrain meshes from converted .fld heightfield grids (FLT-601).
+   * Color ramp approximates YSFlight: water/grass/rock/snow by elevation.
+   */
+  setHeightfield(grids: RenderHeightfieldGrid[]): void {
+    for (const g of grids) {
+      const nx1 = g.nx + 1;
+      const nz1 = g.nz + 1;
+      const positions = new Float32Array(nx1 * nz1 * 3);
+      for (let z = 0; z < nz1; z++) {
+        for (let x = 0; x < nx1; x++) {
+          const y = g.elevationsM[z * nx1 + x] ?? 0;
+          positions[(z * nx1 + x) * 3] = g.origin.x + x * g.xWidM;
+          positions[(z * nx1 + x) * 3 + 1] = y;
+          positions[(z * nx1 + x) * 3 + 2] = g.origin.z + z * g.zWidM;
+        }
+      }
+      const indices: number[] = [];
+      for (let bz = 0; bz < g.nz; bz++) {
+        for (let bx = 0; bx < g.nx; bx++) {
+          const n00 = bz * nx1 + bx;
+          const n01 = (bz + 1) * nx1 + bx;
+          const n10 = bz * nx1 + (bx + 1);
+          const n11 = (bz + 1) * nx1 + (bx + 1);
+          // Two triangles per block, diagonal n01-n10.
+          indices.push(n00, n01, n10, n10, n01, n11);
+        }
+      }
+
+      // Vertex colors by elevation (green lowlands -> rock -> snow).
+      let minE = Infinity;
+      let maxE = -Infinity;
+      for (const e of g.elevationsM) {
+        if (e < minE) minE = e;
+        if (e > maxE) maxE = e;
+      }
+      const range = Math.max(1, maxE - minE);
+      const colors = new Float32Array(nx1 * nz1 * 3);
+      for (let i = 0; i < nx1 * nz1; i++) {
+        const t = Math.min(1, Math.max(0, ((g.elevationsM[i] ?? 0) - minE) / range));
+        // green (0.29,0.54,0.30) -> rock (0.48,0.42,0.35) -> white
+        let r: number, gg: number, b: number;
+        if (t < 0.5) {
+          const k = t / 0.5;
+          r = 0.29 + (0.48 - 0.29) * k;
+          gg = 0.54 + (0.42 - 0.54) * k;
+          b = 0.3 + (0.35 - 0.3) * k;
+        } else {
+          const k = (t - 0.5) / 0.5;
+          r = 0.48 + (0.95 - 0.48) * k;
+          gg = 0.42 + (0.95 - 0.42) * k;
+          b = 0.35 + (0.97 - 0.35) * k;
+        }
+        colors[i * 3] = r;
+        colors[i * 3 + 1] = gg;
+        colors[i * 3 + 2] = b;
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+      const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+      this.scene.add(mesh);
+    }
+    if (grids.length > 0) {
+      this.groundPlane.visible = false;
+    }
   }
 
   /** Push the latest read-only sim transform into the render scene. */

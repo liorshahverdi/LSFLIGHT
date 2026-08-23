@@ -4,7 +4,13 @@
  *
  * Ground ops slice: spawn parked on the runway, start engine, taxi, take off.
  */
-import { createTrainer, SimClock, quatFromEulerYxzDeg, vec3 } from "@lsflight/sim";
+import {
+  createTrainer,
+  SimClock,
+  quatFromEulerYxzDeg,
+  vec3,
+  HeightfieldTerrain,
+} from "@lsflight/sim";
 import { KeyboardAxes } from "@lsflight/input";
 import { FlightRenderer } from "@lsflight/render";
 
@@ -35,6 +41,25 @@ const ac = createTrainer({
   vel: vec3(),
   onRunway: true,
 });
+
+// Converted YSFlight terrain (FLT-601 slice): render + collide.
+fetch("scenery/naha.fld.json")
+  .then((r) => r.json())
+  .then((doc) => {
+    const grids = (doc.terrains ?? []) as {
+      nx: number;
+      nz: number;
+      xWidM: number;
+      zWidM: number;
+      origin: { x: number; z: number };
+      elevationsM: number[];
+    }[];
+    if (grids.length === 0) return;
+    renderer?.setHeightfield(grids);
+    ac.terrain = new HeightfieldTerrain({ grids });
+    console.info(`Loaded ${grids.length} terrain grids from naha.fld`);
+  })
+  .catch(() => console.warn("terrain not loaded; using flat world"));
 
 const clock = new SimClock(FIXED_DT);
 let parkingBrake = true;
