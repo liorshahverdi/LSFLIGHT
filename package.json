@@ -8,7 +8,7 @@
     "tools/*"
   ],
   "scripts": {
-    "build": "tsc -b packages/sim packages/input packages/render tools/convert-dat tools/convert-dnm",
+    "build": "tsc -b packages/sim packages/input packages/render tools/convert-dat tools/convert-dnm tools/convert-fld",
     "typecheck": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",

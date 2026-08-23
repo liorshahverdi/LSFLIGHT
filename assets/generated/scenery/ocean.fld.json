@@ -1,0 +1,61 @@
+{
+  "format": "ysflight-fld",
+  "version": 1,
+  "source": "YSFLIGHT/runtime/scenery/ocean.fld",
+  "name": "OCEAN",
+  "baseElevationM": 0,
+  "groundColorRGB": [
+    0,
+    0,
+    215
+  ],
+  "skyColorRGB": [
+    23,
+    106,
+    189
+  ],
+  "terrains": [
+    {
+      "kind": "elevationGrid",
+      "nx": 4,
+      "nz": 4,
+      "xWidM": 1412.61,
+      "zWidM": 1447.32,
+      "origin": {
+        "x": -2901.69,
+        "z": 2105.5
+      },
+      "elevationsM": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        40,
+        0,
+        40,
+        0,
+        0,
+        20,
+        120,
+        0,
+        0,
+        0,
+        20,
+        120,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "unhandledItemTypes": [
+    "PST",
+    "GOB"
+  ]
+}
