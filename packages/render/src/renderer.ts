@@ -79,6 +79,8 @@ export class FlightRenderer {
   private readonly camera: THREE.PerspectiveCamera;
   private readonly aircraft = makeAircraftMesh();
   private readonly groundPlane!: THREE.Mesh;
+  private readonly sun!: THREE.DirectionalLight;
+  private readonly sunTarget!: THREE.Object3D;
   private readonly target = new THREE.Vector3();
   private pose: CameraPose | undefined;
 
@@ -88,8 +90,10 @@ export class FlightRenderer {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(this.renderer.domElement);
 
-    this.scene.background = new THREE.Color(0x87b5e0);
-    this.scene.fog = new THREE.Fog(0x87b5e0, 4000, 18000);
+    // Sky: vertical gradient dome (horizon haze -> zenith blue).
+    this.renderer.setClearColor(0x87b5e0);
+    this.scene.fog = new THREE.Fog(0xc3d9ee, 6000, 24000);
+    this.scene.add(this.makeSkyDome());
 
     this.camera = new THREE.PerspectiveCamera(
       60,
@@ -98,11 +102,27 @@ export class FlightRenderer {
       40000,
     );
 
-    // Lights.
-    this.scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x4a7c3f, 1.0));
-    const sun = new THREE.DirectionalLight(0xfff2d9, 1.4);
-    sun.position.set(-500, 800, 300);
+    // Lights: cool sky fill + warm late-afternoon sun casting shadows.
+    this.scene.add(new THREE.HemisphereLight(0xbcd4f5, 0x59713f, 0.85));
+    const sun = new THREE.DirectionalLight(0xffe8c8, 1.9);
+    sun.position.set(-420, 520, 300); // low-ish angle -> visible terrain relief
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -140;
+    sun.shadow.camera.right = 140;
+    sun.shadow.camera.top = 140;
+    sun.shadow.camera.bottom = -140;
+    sun.shadow.camera.near = 50;
+    sun.shadow.camera.far = 2200;
+    sun.shadow.bias = -0.0004;
+    this.sun = sun;
+    this.sunTarget = new THREE.Object3D();
+    this.scene.add(this.sunTarget);
+    sun.target = this.sunTarget;
     this.scene.add(sun);
+
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     // Ground plane (placeholder until converted terrain lands, FLT-601).
     this.groundPlane = new THREE.Mesh(
@@ -111,6 +131,7 @@ export class FlightRenderer {
     );
     this.groundPlane.rotation.x = -Math.PI / 2;
     this.groundPlane.position.y = -0.05;
+    this.groundPlane.receiveShadow = true;
     this.scene.add(this.groundPlane);
 
     // Runway-ish strip for orientation.
@@ -120,6 +141,7 @@ export class FlightRenderer {
     );
     strip.rotation.x = -Math.PI / 2;
     strip.position.y = 0.02;
+    strip.receiveShadow = true;
     this.scene.add(strip);
 
     this.scene.add(this.aircraft);
@@ -198,10 +220,54 @@ export class FlightRenderer {
     }
   }
 
+  /**
+   * Gradient sky dome: large inverted sphere with a vertical two-stop
+   * gradient shader (horizon haze matching the fog, deeper zenith blue).
+   */
+  private makeSkyDome(): THREE.Mesh {
+    const geo = new THREE.SphereGeometry(30000, 24, 12);
+    const mat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        topColor: { value: new THREE.Color(0x3f7fd2) },
+        horizonColor: { value: new THREE.Color(0xc3d9ee) },
+      },
+      vertexShader: /* glsl */ `
+        varying vec3 vWorld;
+        void main() {
+          vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform vec3 topColor;
+        uniform vec3 horizonColor;
+        varying vec3 vWorld;
+        void main() {
+          float h = normalize(vWorld).y;
+          float t = clamp(h * 1.6 + 0.12, 0.0, 1.0);
+          gl_FragColor = vec4(mix(horizonColor, topColor, t), 1.0);
+        }
+      `,
+    });
+    const dome = new THREE.Mesh(geo, mat);
+    dome.frustumCulled = false;
+    return dome;
+  }
+
   /** Push the latest read-only sim transform into the render scene. */
   sync(state: RenderState): void {
     this.aircraft.position.set(state.pos.x, state.pos.y, state.pos.z);
     this.aircraft.quaternion.set(state.att.x, state.att.y, state.att.z, state.att.w);
+
+    // Keep the shadow frustum centered on the aircraft so shadows stay
+    // crisp near the player regardless of world position.
+    if (this.sun) {
+      this.sunTarget.position.set(state.pos.x, 0, state.pos.z);
+      this.sun.position.set(state.pos.x - 420, Math.max(120, state.pos.y + 520), state.pos.z + 300);
+    }
 
     this.pose = chaseCameraPose(state, 1 / 60, this.pose);
     this.camera.position.set(this.pose.position.x, this.pose.position.y, this.pose.position.z);
