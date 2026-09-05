@@ -46,13 +46,17 @@ describe("Trainer ground operations & takeoff (Sprint 3)", () => {
   it("gentle touchdown rates GOOD, hard impact crashes", () => {
     // Gentle: 2 m/s sink.
     const gentle = createTrainer({
-      pos: vec3(0, 6, 200),
+      pos: vec3(0, 2, 200),
       att: quatFromEulerYxzDeg({ yaw: 0, pitch: 2.0, roll: 0 }),
-      vel: vec3(0, -2, -55),
+      vel: vec3(0, -2, -40),
       onRunway: true,
     });
-    for (let i = 0; i < 60 * 10; i++) gentle.step(DT, { throttle: 0.4 });
-    expect(gentle.lastTouchdown.rating).toBe("GOOD");
+    for (let i = 0; i < 60 * 2 && !gentle.lastTouchdown; i++) gentle.step(DT, { throttle: 0 });
+    expect(gentle.lastTouchdown).not.toBeNull();
+    expect(gentle.lastTouchdown!.t).toBeGreaterThan(0);
+    expect(gentle.lastTouchdown!.sinkRate).toBeLessThan(0);
+    expect(gentle.lastTouchdown!.sinkRate).toBeGreaterThan(-3);
+    expect(gentle.lastTouchdown!.rating).toBe("GOOD");
     expect(gentle.crashed).toBe(false);
 
     // Brutal: 12 m/s sink with too little airspeed to flare.
@@ -63,7 +67,8 @@ describe("Trainer ground operations & takeoff (Sprint 3)", () => {
       onRunway: true,
     });
     for (let i = 0; i < 60 * 10; i++) brutal.step(DT, { throttle: 0 });
-    expect(brutal.lastTouchdown.rating).toBe("CRASH");
+    expect(brutal.lastTouchdown).not.toBeNull();
+    expect(brutal.lastTouchdown!.rating).toBe("CRASH");
     expect(brutal.crashed).toBe(true);
   });
 
@@ -74,4 +79,48 @@ describe("Trainer ground operations & takeoff (Sprint 3)", () => {
     // Heading changed measurably (yaw quaternion y-component grew).
     expect(Math.abs(ac.body.att.y)).toBeGreaterThan(0.05);
   });
+});
+
+it.each([0, 1])(
+  "records contact after %s airborne ticks and evaluates a later hard bounce",
+  (airborneTicks) => {
+    const ac = createTrainer({ pos: vec3(0, 5, 0), vel: vec3() });
+    for (let i = 0; i < airborneTicks; i++) ac.step(DT, { throttle: 0 });
+    expect(ac.lastTouchdown).toBeNull();
+    ac.body.pos = vec3(0, 1.1, 0);
+    ac.body.vel = vec3(0, -1, 0);
+    ac.step(DT, { throttle: 0 });
+    expect(ac.lastTouchdown).toMatchObject({ t: airborneTicks * DT, rating: "GOOD" });
+    const first = ac.lastTouchdown;
+    ac.body.pos = vec3(0, 5, 0);
+    ac.body.vel = vec3(0, 1, 0);
+    ac.step(DT, { throttle: 0 });
+    expect(ac.lastTouchdown).toBe(first);
+    ac.body.pos = vec3(0, 1.1, 0);
+    ac.body.vel = vec3(0, -12, 0);
+    ac.step(DT, { throttle: 0 });
+    expect(ac.lastTouchdown!.t).toBeGreaterThan(0);
+    expect(ac.lastTouchdown!.rating).toBe("CRASH");
+    expect(ac.crashed).toBe(true);
+  },
+);
+it("parked contact is explicit at t=0 and is not rewritten every tick", () => {
+  const ac = spawnOnRunway();
+  ac.step(DT, { throttle: 0, brake: 1 });
+  expect(ac.lastTouchdown).toMatchObject({ t: 0, sinkRate: 0, rating: "GOOD" });
+  const first = ac.lastTouchdown;
+  for (let i = 0; i < 300; i++) ac.step(DT, { throttle: 0, brake: 1 });
+  expect(ac.lastTouchdown).toBe(first);
+  expect(ac.crashed).toBe(false);
+});
+it("upward-moving contact cannot crash; continuous contact still checks downward impacts", () => {
+  const ac = createTrainer({ pos: vec3(0, 1.1, 0), vel: vec3(0, 12, 0) });
+  ac.step(DT, { throttle: 0 });
+  expect(ac.crashed).toBe(false);
+  const event = ac.lastTouchdown;
+  ac.body.pos = vec3(0, 1.1, 0);
+  ac.body.vel = vec3(0, -12, 0);
+  ac.step(DT, { throttle: 0 });
+  expect(ac.lastTouchdown).toBe(event);
+  expect(ac.crashed).toBe(true);
 });

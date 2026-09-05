@@ -7,7 +7,7 @@
  * contact point so they also generate realistic pitch/roll torques.
  */
 import type { RigidBody } from "../physics/rigidbody.js";
-import type { Vec3 } from "../physics/frames.js";
+import { quatRotate, quatInverseRotate, type Vec3 } from "../physics/frames.js";
 import type { TerrainProvider } from "./terrain.js";
 
 export interface GearStrut {
@@ -49,26 +49,6 @@ export function createGear(config: GearConfig): { config: GearConfig; last: Gear
   };
 }
 
-function conjRotate(q: { x: number; y: number; z: number; w: number }, v: Vec3): Vec3 {
-  return {
-    x: q.w * v.x - q.z * v.y + q.y * v.z,
-    y: q.z * v.x + q.w * v.y - q.x * v.z,
-    z: -q.y * v.x + q.x * v.y + q.w * v.z,
-  };
-}
-
-const rot = (q: { x: number; y: number; z: number; w: number }, v: Vec3): Vec3 => {
-  // out = v + 2w(q_vec x v) + 2 q_vec x (q_vec x v)
-  const tx = 2 * (q.y * v.z - q.z * v.y);
-  const ty = 2 * (q.z * v.x - q.x * v.z);
-  const tz = 2 * (q.x * v.y - q.y * v.x);
-  return {
-    x: v.x + q.w * tx + (q.y * tz - q.z * ty),
-    y: v.y + q.w * ty + (q.z * tx - q.x * tz),
-    z: v.z + q.w * tz + (q.x * ty - q.y * tx),
-  };
-};
-
 function cross(a: Vec3, b: Vec3): Vec3 {
   return {
     x: a.y * b.z - a.z * b.y,
@@ -94,7 +74,7 @@ export function stepGearAndContact(
   };
 
   // World-frame angular velocity for point velocities.
-  const omegaW = rot(body.att, body.angVel);
+  const omegaW = quatRotate(body.att, body.angVel);
   // Ground speed for steering fade & friction directions.
   const groundSpeed = Math.hypot(body.vel.x, body.vel.z);
 
@@ -103,7 +83,7 @@ export function stepGearAndContact(
   const forces: { r: Vec3; f: Vec3 }[] = [];
 
   for (const strut of c.struts) {
-    const rW = rot(body.att, strut.posM); // lever arm, world frame
+    const rW = quatRotate(body.att, strut.posM); // lever arm, world frame
     const pW = { x: body.pos.x + rW.x, y: body.pos.y + rW.y, z: body.pos.z + rW.z };
     const groundY = terrain.heightAt(pW.x, pW.z);
     const pen = groundY - pW.y;
@@ -134,7 +114,7 @@ export function stepGearAndContact(
     totalN += N;
 
     // Wheel forward direction (steering rotates nose wheel about +Y).
-    let fwd = rot(body.att, { x: 0, y: 0, z: -1 });
+    let fwd = quatRotate(body.att, { x: 0, y: 0, z: -1 });
     if (strut.steering && groundSpeed > 0.1) {
       const fade = Math.max(0, 1 - groundSpeed / 40); // no steering authority in cruise
       const delta = ((controls.rudder ?? 0) * c.maxSteerDeg * fade * Math.PI) / 180;
@@ -179,7 +159,7 @@ export function stepGearAndContact(
     body.forceAccum.y += f.y;
     body.forceAccum.z += f.z;
     const tauW = cross(r, f);
-    const tauB = conjRotate(body.att, tauW);
+    const tauB = quatInverseRotate(body.att, tauW);
     body.torqueAccum.x += tauB.x;
     body.torqueAccum.y += tauB.y;
     body.torqueAccum.z += tauB.z;

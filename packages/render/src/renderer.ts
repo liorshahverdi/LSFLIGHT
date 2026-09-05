@@ -5,6 +5,7 @@
 import * as THREE from "three";
 import { meshDocToGeometry, validateMeshDoc, type MeshDoc } from "./mesh.js";
 import { chaseCameraPose, type CameraPose } from "./chase-camera.js";
+import { makeFallbackGround } from "./fallback-ground.js";
 
 /** Heightfield grid data (subset of convert-fld output). */
 export interface RenderHeightfieldGrid {
@@ -124,14 +125,8 @@ export class FlightRenderer {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // Ground plane (placeholder until converted terrain lands, FLT-601).
-    this.groundPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(40000, 40000),
-      new THREE.MeshLambertMaterial({ color: 0x5a8a4a }),
-    );
-    this.groundPlane.rotation.x = -Math.PI / 2;
-    this.groundPlane.position.y = -0.05;
-    this.groundPlane.receiveShadow = true;
+    // Same zero-elevation fallback as HeightfieldTerrain.heightAt outside grids.
+    this.groundPlane = makeFallbackGround();
     this.scene.add(this.groundPlane);
 
     // Runway-ish strip for orientation.
@@ -215,9 +210,6 @@ export class FlightRenderer {
       const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
       this.scene.add(mesh);
     }
-    if (grids.length > 0) {
-      this.groundPlane.visible = false;
-    }
   }
 
   /**
@@ -261,6 +253,8 @@ export class FlightRenderer {
   sync(state: RenderState): void {
     this.aircraft.position.set(state.pos.x, state.pos.y, state.pos.z);
     this.aircraft.quaternion.set(state.att.x, state.att.y, state.att.z, state.att.w);
+    // Cover the full camera range as the aircraft leaves finite terrain grids.
+    this.groundPlane.position.set(state.pos.x, 0, state.pos.z);
 
     // Keep the shadow frustum centered on the aircraft so shadows stay
     // crisp near the player regardless of world position.
@@ -286,7 +280,13 @@ export class FlightRenderer {
     const geo = meshDocToGeometry(doc as MeshDoc);
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
     this.aircraft.clear();
-    this.aircraft.add(new THREE.Mesh(geo, mat));
+    const model = new THREE.Mesh(geo, mat);
+    // Mark only a real converted-model draw, not placeholder/HUD-only success.
+    delete this.container.dataset.modelTrianglesRendered;
+    model.onAfterRender = () => {
+      this.container.dataset.modelTrianglesRendered = String(doc.indices.length / 3);
+    };
+    this.aircraft.add(model);
     return true;
   }
 

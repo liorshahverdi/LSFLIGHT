@@ -5,14 +5,16 @@
  *   DYNAMODEL / DNMVER header
  *   PCK "name" lineCount  ->  SURF section of lineCount lines containing
  *   packed SRF text (V xyz / F face-start / V indices / N normals / C rgb / E)
- *   SRF "name" nodes with FIL chunk reference and POS translation.
+ *   SRF "name" nodes with FIL, CLD hierarchy, POS placement and CNT pivot.
  *
  * Output coordinates are converted to the sim/render frame:
  *   dnm (x,y,z) -> sim (-x, y, -z)  [+Z forward becomes -Z forward],
- * with triangle winding reversed to keep normals outward.
+ * a proper 180-degree Y rotation, so triangle winding is preserved after
+ * orienting source polygons to their explicit SRF outward normals.
  *
- * v0.1 limitation: node rotations (the 3 values after translation in POS)
- * are ignored with a warning; they are zero for most static aircraft.
+ * Static neutral pose matches YsShellDnmContainer::DnmState (zero relative
+ * position/attitude, visible). STA/CLA/PAX describe animation, not the bind pose;
+ * they are not evaluated. See docs/high-severity-fixes.md for upstream evidence.
  */
 
 export interface MeshJson {
@@ -24,15 +26,51 @@ export interface MeshJson {
   indices: number[];
 }
 
-interface Chunk {
-  vertices: [number, number, number][];
-  faces: { verts: number[]; color: [number, number, number] | undefined }[];
+interface Face {
+  verts: number[];
+  color?: [number, number, number];
+  normal?: [number, number, number];
 }
 
+interface Chunk {
+  vertices: [number, number, number][];
+  faces: Face[];
+}
+
+type Point = [number, number, number];
 interface Node {
+  name: string;
   file: string;
-  pos: [number, number, number];
-  rotationNonZero: boolean;
+  pos: Point;
+  rotation: Point;
+  center: Point;
+  children: string[];
+}
+
+function numbers(line: string, count: number): number[] {
+  const values = line.split(/\s+/).slice(1).map(Number);
+  if (values.length !== count || !values.every(Number.isFinite))
+    throw new Error(`convert-dnm: invalid transform/metadata: ${line}`);
+  return values;
+}
+
+/** T(POS) * RotateXZ(h) * RotateZY(p) * RotateXY(b) * T(-CNT).
+ * DNM angles are 32768 units per PI, not degrees. Apply rightmost first.
+ */
+function placeVertex(vertex: Point, node: Node): Point {
+  const [h, p, b] = node.rotation.map((a) => (a * Math.PI) / 32768) as Point;
+  const x = vertex[0] - node.center[0];
+  const y = vertex[1] - node.center[1];
+  const z = vertex[2] - node.center[2];
+  const bx = Math.cos(b) * x - Math.sin(b) * y;
+  const by = Math.sin(b) * x + Math.cos(b) * y;
+  const py = Math.cos(p) * by + Math.sin(p) * z;
+  const pz = -Math.sin(p) * by + Math.cos(p) * z;
+  return [
+    node.pos[0] + Math.cos(h) * bx - Math.sin(h) * pz,
+    node.pos[1] + py,
+    node.pos[2] + Math.sin(h) * bx + Math.cos(h) * pz,
+  ];
 }
 
 const DEFAULT_COLOR: [number, number, number] = [128, 128, 128];
@@ -54,7 +92,11 @@ export function convertDnm(source: string): {
       if (!m) throw new Error(`convert-dnm: bad PCK line: ${line}`);
       const name = m[1] as string;
       const count = parseInt(m[2] as string, 10);
-      i += 2; // skip PCK line + SURF line
+      i++; // PCK count includes the Surf header, not the PCK line.
+      if (lines[i]?.trim().toUpperCase() !== "SURF" || i + count > lines.length) {
+        throw new Error(`convert-dnm: invalid packed surface ${name}`);
+      }
+      if (chunks.has(name)) throw new Error(`convert-dnm: duplicate packed surface ${name}`);
       chunks.set(name, parseSrfChunk(lines.slice(i, i + count)));
       i += count;
       continue;
@@ -63,36 +105,90 @@ export function convertDnm(source: string): {
       const name = line.slice(4).trim().replace(/"/g, "");
       let j = i + 1;
       let file = name;
-      let pos: [number, number, number] = [0, 0, 0];
-      let rotNonZero = false;
-      while (j < lines.length) {
+      let pos: Point = [0, 0, 0];
+      let rotation: Point = [0, 0, 0];
+      let center: Point = [0, 0, 0];
+      const children: string[] = [];
+      let stateCount = 0;
+      let expectedStates: number | undefined;
+      let expectedChildren: number | undefined;
+      while (j < lines.length && lines[j]?.trim() !== "END") {
         const l = (lines[j] ?? "").trim();
-        if (l.startsWith("POS")) {
-          const p = l.split(/\s+/).slice(1).map(parseFloat);
-          pos = [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0];
-          rotNonZero =
-            Math.abs(p[3] ?? 0) > 1e-9 || Math.abs(p[4] ?? 0) > 1e-9 || Math.abs(p[5] ?? 0) > 1e-9;
-          break;
+        const keyword = l.split(/\s+/)[0];
+        if (keyword === "POS") {
+          // Legacy DNM writes an extra show field; upstream POS ignores it.
+          const fields = l.split(/\s+/).length - 1;
+          const p = numbers(l, fields === 7 ? 7 : 6);
+          pos = p.slice(0, 3) as Point;
+          rotation = p.slice(3, 6) as Point;
+        } else if (keyword === "CNT") {
+          center = numbers(l, 3) as Point;
+        } else if (keyword === "FIL") {
+          file = l.slice(4).trim().replace(/"/g, "");
+        } else if (keyword === "CLD") {
+          children.push(l.slice(4).trim().replace(/"/g, ""));
+        } else if (keyword === "STA") {
+          numbers(l, 7);
+          stateCount++;
+        } else if (keyword === "NST") {
+          expectedStates = numbers(l, 1)[0];
+        } else if (keyword === "NCH") {
+          expectedChildren = numbers(l, 1)[0];
+        } else if (keyword === "CLA") {
+          numbers(l, 1);
+        } else if (keyword === "PAX") {
+          numbers(l, 3);
+        } else if (l && !l.startsWith("#") && l !== "REL DEP") {
+          throw new Error(`convert-dnm: unsupported node directive on ${name}: ${l}`);
         }
         j++;
-        if (j - i > 50) break; // malformed guard
       }
-      // FIL may appear before or after POS; scan the whole block for it.
-      let k = i + 1;
-      while (k < lines.length && !(lines[k] ?? "").trim().startsWith("END")) {
-        const l = (lines[k] ?? "").trim();
-        if (l.startsWith("FIL")) {
-          file = l.split(/\s+/)[1]?.replace(/"/g, "") ?? name;
-          break;
-        }
-        k++;
-      }
-      nodes.push({ file, pos, rotationNonZero: rotNonZero });
-      void name;
-      i = j;
+      if (j === lines.length) throw new Error(`convert-dnm: unterminated node ${name}`);
+      if (expectedStates !== undefined && stateCount !== expectedStates)
+        throw new Error(`convert-dnm: NST count mismatch on ${name}`);
+      if (expectedChildren !== undefined && children.length !== expectedChildren)
+        throw new Error(`convert-dnm: NCH count mismatch on ${name}`);
+      if (stateCount > 0 && warnings.length === 0)
+        warnings.push("static neutral pose: STA animation states are not evaluated");
+      nodes.push({ name, file, pos, rotation, center, children });
+      i = j + 1;
       continue;
     }
+    if (
+      line &&
+      !line.startsWith("#") &&
+      line !== "DYNAMODEL" &&
+      line !== "DNMVER 1" &&
+      line !== "END"
+    )
+      throw new Error(`convert-dnm: unsupported directive: ${line}`);
     i++;
+  }
+
+  const byName = new Map<string, Node>();
+  for (const node of nodes) {
+    if (byName.has(node.name)) throw new Error(`convert-dnm: duplicate node ${node.name}`);
+    byName.set(node.name, node);
+  }
+  const parents = new Map<Node, Node>();
+  for (const node of nodes) {
+    for (const name of node.children) {
+      const child = byName.get(name);
+      if (!child) throw new Error(`convert-dnm: missing child ${name}`);
+      if (parents.has(child)) throw new Error(`convert-dnm: multiple parents for ${name}`);
+      parents.set(child, node);
+    }
+  }
+  const chains = new Map<Node, Node[]>();
+  for (const node of nodes) {
+    const chain: Node[] = [];
+    let ancestor: Node | undefined = node;
+    while (ancestor) {
+      if (chain.includes(ancestor)) throw new Error(`convert-dnm: hierarchy cycle at ${node.name}`);
+      chain.push(ancestor);
+      ancestor = parents.get(ancestor);
+    }
+    chains.set(node, chain);
   }
 
   // Assemble mesh per node.
@@ -102,27 +198,20 @@ export function convertDnm(source: string): {
 
   for (const node of nodes) {
     const chunk = chunks.get(node.file);
-    if (!chunk) continue;
-    if (node.rotationNonZero) {
-      warnings.push(`non-zero node rotation ignored on ${node.file}`);
-    }
+    if (!chunk) throw new Error(`convert-dnm: missing packed surface ${node.file}`);
 
     const base = outPositions.length / 3;
     // Vertex colors: last face color wins (faces share vertices rarely here).
     const vertColor = new Map<number, [number, number, number]>();
     for (const f of chunk.faces) {
       if (!f.color) continue;
-      for (const vi of f.verts) vertColor.set(vi - 1, f.color);
+      for (const vi of f.verts) vertColor.set(vi, f.color);
     }
 
-    for (const [x, y, z] of chunk.vertices) {
-      const wx = x + node.pos[0];
-      const wy = y + node.pos[1];
-      const wz = z + node.pos[2];
+    for (const vertex of chunk.vertices) {
+      const [wx, wy, wz] = chains.get(node)!.reduce(placeVertex, vertex);
       // Frame conversion: dnm -> sim.
       outPositions.push(-wx, wy, -wz);
-      const col = vertColor.get(outPositions.length / 3 - 1 - 0) ?? DEFAULT_COLOR;
-      void col;
     }
     // Colors pass (separate to keep index math simple).
     for (let vi = 0; vi < chunk.vertices.length; vi++) {
@@ -131,12 +220,12 @@ export function convertDnm(source: string): {
     }
 
     for (const f of chunk.faces) {
-      // Fan-triangulate polygons; reverse winding for the axis flip.
+      // Fan-triangulate zero-based SRF polygons; a two-axis flip preserves winding.
       for (let k = 2; k < f.verts.length; k++) {
         outIndices.push(
-          base + (f.verts[0] as number) - 1,
-          base + (f.verts[k] as number) - 1,
-          base + (f.verts[k - 1] as number) - 1,
+          base + (f.verts[0] as number),
+          base + (f.verts[k - 1] as number),
+          base + (f.verts[k] as number),
         );
       }
     }
@@ -150,8 +239,8 @@ export function convertDnm(source: string): {
 
 function parseSrfChunk(chunkLines: string[]): Chunk {
   const vertices: [number, number, number][] = [];
-  const faces: { verts: number[]; color: [number, number, number] | undefined }[] = [];
-  let cur: { verts: number[]; color: [number, number, number] | undefined } | undefined;
+  const faces: Face[] = [];
+  let cur: Face | undefined;
 
   for (const raw of chunkLines) {
     const t = raw.trim();
@@ -168,15 +257,48 @@ function parseSrfChunk(chunkLines: string[]): Chunk {
       const p = t.split(/\s+/).slice(1).map(parseFloat);
       if (cur) {
         // Face index list: every number on the line is a vertex index.
-        for (const n of p) cur.verts.push(n); // 1-based
+        for (const n of p) cur.verts.push(n); // zero-based
       } else {
         vertices.push([p[0] ?? 0, p[1] ?? 0, p[2] ?? 0]);
       }
       continue;
     }
+    if (t.startsWith("N ") && cur) {
+      // SRF N is face-center xyz followed by direction xyz, not just a normal.
+      const n = t.split(/\s+/).slice(1).map(Number);
+      if (n.length !== 6 || !n.every(Number.isFinite))
+        throw new Error("convert-dnm: invalid face normal");
+      cur.normal = [n[3]!, n[4]!, n[5]!];
+    }
     if (t.startsWith("C ") && cur) {
       const c = t.split(/\s+/).slice(1).map(parseFloat);
       cur.color = [c[0] ?? 128, c[1] ?? 128, c[2] ?? 128];
+    }
+  }
+  if (vertices.some((v) => !v.every(Number.isFinite)))
+    throw new Error("convert-dnm: invalid vertex");
+  for (const face of faces) {
+    if (
+      face.verts.length < 3 ||
+      face.verts.some((i) => !Number.isInteger(i) || i < 0 || i >= vertices.length)
+    ) {
+      throw new Error("convert-dnm: invalid face index");
+    }
+    if (face.color && !face.color.every(Number.isFinite))
+      throw new Error("convert-dnm: invalid color");
+    if (face.normal) {
+      // Legacy SRFs can wind opposite to their explicit outward normal.
+      // Sum polygon area vectors (Newell); absent/zero normals keep source order.
+      const area = [0, 0, 0];
+      for (let i = 0; i < face.verts.length; i++) {
+        const a = vertices[face.verts[i]!]!;
+        const b = vertices[face.verts[(i + 1) % face.verts.length]!]!;
+        area[0]! += (a[1] - b[1]) * (a[2] + b[2]);
+        area[1]! += (a[2] - b[2]) * (a[0] + b[0]);
+        area[2]! += (a[0] - b[0]) * (a[1] + b[1]);
+      }
+      const alignment = area.reduce((sum, n, i) => sum + n * face.normal![i]!, 0);
+      if (alignment < 0) face.verts = [face.verts[0]!, ...face.verts.slice(1).reverse()];
     }
   }
   return { vertices, faces };

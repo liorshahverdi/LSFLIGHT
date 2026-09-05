@@ -14,9 +14,13 @@ export function validateMeshDoc(doc: unknown): doc is MeshDoc {
   if (!m || !Array.isArray(m.positions) || !Array.isArray(m.colors) || !Array.isArray(m.indices)) {
     return false;
   }
+  for (const values of [m.positions, m.colors]) {
+    for (const value of values) if (!Number.isFinite(value)) return false;
+  }
+  if (m.indices.length === 0 || m.indices.length % 3 !== 0) return false;
   const nVerts = m.positions.length / 3;
   for (const i of m.indices) {
-    if (i < 0 || i >= nVerts) return false;
+    if (!Number.isInteger(i) || i < 0 || i >= nVerts) return false;
   }
   return m.positions.length % 3 === 0 && m.colors.length === m.positions.length;
 }

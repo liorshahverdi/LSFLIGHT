@@ -1,3 +1,4 @@
+import { quatFromEulerYxzDeg, quatRotate } from "../src/physics/frames.js";
 import { describe, it, expect } from "vitest";
 import { makeRigidBody, stepRigidBody } from "../src/physics/rigidbody.js";
 import { FlatTerrain } from "../src/ground/terrain.js";
@@ -75,4 +76,39 @@ describe("Landing gear contact (FLT-502)", () => {
     expect(b.pos.y).toBeGreaterThan(1.0);
     expect(b.pos.y).toBeLessThan(1.2);
   });
+});
+
+it.each([45, 90, 180])("contact torque is body-frame invariant under heading %s", (yaw) => {
+  const a = bodyOnRunway();
+  a.pos.y = 1.1;
+  a.vel = { x: 2, y: -1, z: -10 };
+  const b = bodyOnRunway();
+  b.pos.y = a.pos.y;
+  b.att = quatFromEulerYxzDeg({ yaw, pitch: 0, roll: 0 });
+  b.vel = quatRotate(b.att, a.vel);
+  for (const body of [a, b])
+    stepGearAndContact(body, createGear(SINGLE_STRUT), new FlatTerrain({ runways: [] }), DT);
+  for (const axis of ["x", "y", "z"] as const)
+    expect(b.torqueAccum[axis]).toBeCloseTo(a.torqueAccum[axis], 7);
+});
+
+it("transforms contact torque at a combined pitch, roll, and heading", () => {
+  const body = bodyOnRunway();
+  body.att = quatFromEulerYxzDeg({ yaw: 75, pitch: 12, roll: -20 });
+  body.pos.y = 0.5;
+  body.vel = { x: 3, y: -2, z: -10 };
+  stepGearAndContact(body, createGear(SINGLE_STRUT), new FlatTerrain({ runways: [] }), DT);
+  const axes = [
+    { x: 1, y: 0, z: 0 },
+    { x: 0, y: 1, z: 0 },
+    { x: 0, y: 0, z: 1 },
+  ].map((axis) => quatRotate(body.att, axis));
+  const f = axes.map(
+    (axis) => axis.x * body.forceAccum.x + axis.y * body.forceAccum.y + axis.z * body.forceAccum.z,
+  );
+  const r = SINGLE_STRUT.struts[0]!.posM;
+  expect(body.torqueAccum.x).toBeCloseTo(r.y * f[2]! - r.z * f[1]!, 7);
+  expect(body.torqueAccum.y).toBeCloseTo(r.z * f[0]! - r.x * f[2]!, 7);
+  expect(body.torqueAccum.z).toBeCloseTo(r.x * f[1]! - r.y * f[0]!, 7);
+  expect(body.forceAccum.y).toBeGreaterThan(0);
 });

@@ -32,7 +32,7 @@ describe("Aerodynamic damping (FLT-312 analog)", () => {
     // Positive pitch rate -> negative (nose-down) additional torque.
     expect(pitching.torqueBody.x).toBeLessThan(still.torqueBody.x);
     const delta = still.torqueBody.x - pitching.torqueBody.x;
-    expect(delta).toBeGreaterThan(0);
+    expect(delta).toBeCloseTo(still.qBar * BASE.pitchDamp * 0.5, 8);
   });
 
   it("damping scales linearly with rate", () => {
@@ -69,6 +69,36 @@ describe("Aerodynamic damping (FLT-312 analog)", () => {
     expect(below.torqueBody.x).toBeGreaterThan(0); // nose-up to restore
     expect(above.torqueBody.x).toBeLessThan(0); // nose-down to restore
     expect(Math.abs(above.torqueBody.x)).toBeCloseTo(Math.abs(below.torqueBody.x), 3); // symmetric about trim
+  });
+
+  it("normalized pitch-rate damping scales with speed, not speed squared", () => {
+    const torque = (airspeed: number) => {
+      const airflow = { ...CRUISE, airspeed };
+      const still = computeAeroForces(airflow, 0, BASE);
+      return (
+        computeAeroForces(airflow, 0, BASE, {}, { pitchRateRadS: 0.5 }).torqueBody.x -
+        still.torqueBody.x
+      );
+    };
+    expect(torque(30) / torque(60)).toBeCloseTo(0.5, 10);
+    expect(torque(0)).toBe(0);
+    expect(Number.isFinite(torque(1e-5))).toBe(true);
+    expect(Math.abs(torque(1e-5))).toBeLessThan(0.001);
+  });
+
+  it("caps pitch damping at the control authority speed and always removes rotation energy", () => {
+    const torque = (speed: number, rate: number) =>
+      computeAeroForces(
+        { ...CRUISE, airspeed: speed, aoaDeg: 0 },
+        0,
+        { ...BASE, trimAoADeg: 0 },
+        {},
+        { pitchRateRadS: rate },
+      ).torqueBody.x;
+    expect(torque(300, 1)).toBeCloseTo(torque(600, 1), 8);
+    for (const speed of [0, 1e-5, 20, 60, 300]) {
+      for (const rate of [-1, 0, 1]) expect(torque(speed, rate) * rate).toBeLessThanOrEqual(0);
+    }
   });
 
   it("roll and yaw rates damp their own axes", () => {

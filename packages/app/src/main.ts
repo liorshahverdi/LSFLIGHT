@@ -20,19 +20,35 @@ const FIXED_DT = 1 / 60;
 const container = document.getElementById("app")!;
 const hud = document.getElementById("hud")!;
 let renderer: FlightRenderer | undefined;
+let modelStatus = "MODEL: loading";
 try {
   renderer = new FlightRenderer(container);
 } catch (err) {
   // Headless/CI may lack WebGL; HUD-only mode keeps the sim testable.
+  container.dataset.modelState = "unavailable";
+  modelStatus = "MODEL: WebGL unavailable (HUD only)";
   console.warn("WebGL unavailable, running HUD-only", err);
 }
-// Load the converted Cessna 172R (YSFlight runtime model).
-fetch("assets/generated/models/cessna172r.mesh.json")
-  .then((r) => r.json())
-  .then((doc) => {
-    if (!renderer.setModel(doc)) console.error("invalid mesh document");
-  })
-  .catch(() => console.warn("model not loaded; using placeholder"));
+// Vite serves publicDir at BASE_URL, not at its repository path.
+if (renderer) {
+  const modelRenderer = renderer;
+  container.dataset.modelState = "loading";
+  fetch(`${import.meta.env.BASE_URL}models/cessna172r.mesh.json`)
+    .then((r) => {
+      if (!r.ok) throw new Error(`model HTTP ${r.status}`);
+      return r.json();
+    })
+    .then((doc: unknown) => {
+      if (!modelRenderer.setModel(doc)) throw new Error("invalid mesh document");
+      container.dataset.modelState = "ready";
+      modelStatus = "MODEL: Cessna 172R";
+    })
+    .catch((err: unknown) => {
+      container.dataset.modelState = "failed";
+      modelStatus = "MODEL: load failed (placeholder)";
+      console.error("Aircraft model load failed; using placeholder", err);
+    });
+}
 
 // Parked on the runway, cold-ish: idle throttle, brakes on until released.
 const ac = createTrainer({
@@ -43,7 +59,7 @@ const ac = createTrainer({
 });
 
 // Converted YSFlight terrain (FLT-601 slice): render + collide.
-fetch("scenery/naha.fld.json")
+fetch(`${import.meta.env.BASE_URL}scenery/naha.fld.json`)
   .then((r) => r.json())
   .then((doc) => {
     const grids = (doc.terrains ?? []) as {
@@ -110,7 +126,7 @@ function frame(now: number): void {
     const ias = a.airspeed.toFixed(0).padStart(3);
     const stall = a.aoaDeg > ac.coeffs.criticalAoAPositiveDeg - 2 ? "   STALL <<<" : "";
     const td =
-      ac.lastTouchdown.t > 0
+      ac.lastTouchdown !== null
         ? `\nTOUCHDOWN: ${ac.lastTouchdown.rating} (${ac.lastTouchdown.sinkRate.toFixed(1)} m/s)`
         : "";
     const status = ac.crashed
@@ -123,7 +139,7 @@ function frame(now: number): void {
     hud.textContent =
       `ALT ${alt} m   IAS ${ias} m/s   AOA ${a.aoaDeg.toFixed(1)}°\n` +
       `THR ${(cmd.throttle * 100).toFixed(0)}%   FUEL ${((ac.engine.fuelKg / 200) * 100).toFixed(0)}%` +
-      `   ${parkingBrake ? "BRAKES" : "ROLLING"}${stall}${td}${status}`;
+      `   ${parkingBrake ? "BRAKES" : "ROLLING"}${stall}${td}${status}\n${modelStatus}`;
   }
 
   requestAnimationFrame(frame);

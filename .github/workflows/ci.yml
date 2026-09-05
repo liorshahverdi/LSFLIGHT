@@ -16,7 +16,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: typecheck + lint + format + tests
+      - run: npx playwright install --with-deps chromium
+      - name: typecheck + lint + format + tests + production build + browser tests
         run: npm run check
       - name: upload failure telemetry
         if: failure()
@@ -24,5 +25,6 @@ jobs:
         with:
           name: check-logs
           path: |
-            /tmp/vitest*.log
+            test-results/
+            playwright-report/
           if-no-files-found: ignore

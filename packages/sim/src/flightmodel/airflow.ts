@@ -6,7 +6,7 @@
  *  - AoA > 0  : nose above the velocity vector (velocity below body X-Z plane)
  *  - Slip > 0 : relative wind from the RIGHT (velocity left of the nose)
  */
-import { quatRotate, type Quat, type Vec3 } from "../physics/frames.js";
+import { quatInverseRotate, type Quat, type Vec3 } from "../physics/frames.js";
 import { speedOfSound } from "../physics/atmosphere.js";
 
 export interface AirflowState {
@@ -35,11 +35,6 @@ export interface AirflowInput {
 
 const RAD2DEG = 180 / Math.PI;
 
-/** World->body rotation is the conjugate quaternion. */
-function quatConjugate(q: Quat): Quat {
-  return { x: -q.x, y: -q.y, z: -q.z, w: q.w };
-}
-
 export function computeAirflow(input: AirflowInput): AirflowState {
   const rel = {
     x: input.vel.x - input.wind.x,
@@ -47,7 +42,7 @@ export function computeAirflow(input: AirflowInput): AirflowState {
     z: input.vel.z - input.wind.z,
   };
   // Velocity expressed in the body frame.
-  const vb = quatRotate(quatConjugate(input.att), rel);
+  const vb = quatInverseRotate(input.att, rel);
 
   const airspeed = Math.hypot(vb.x, vb.y, vb.z);
   const forwardComp = -vb.z; // + when moving toward the nose

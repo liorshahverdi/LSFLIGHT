@@ -34,8 +34,11 @@ export interface AeroCoeffs {
   pitchManeuver: number;
   yawManeuver: number;
   rollManeuver: number;
-  /** Rotational damping per axis, torque = -qBar * damp * rate (rad/s). */
+  /** Pitch damping torque / (Pa * rad/s) at PITCH_DAMP_REFERENCE_SPEED_M_S.
+   * Uses normalized pitch rate (reference speed / airspeed), hence scales with V.
+   */
   pitchDamp: number;
+  /** Yaw/roll damping torque / (Pa * rad/s), retaining the existing V² model. */
   yawDamp: number;
   rollDamp: number;
   /** Dynamic-pressure cap for control authority, Pa. */
@@ -61,6 +64,8 @@ export interface AeroResult {
 }
 
 const DEG2RAD = Math.PI / 180;
+/** Calibration speed for pitchDamp, not a low-speed authority floor. */
+export const PITCH_DAMP_REFERENCE_SPEED_M_S = 60;
 
 /** Piecewise-linear CL with post-stall falloff. */
 export function liftCoefficient(aoaDeg: number, c: AeroCoeffs): number {
@@ -148,17 +153,23 @@ export function computeAeroForces(
   const pitchStabTorque = -qBarRaw * c.pitchStab * aoaOff; // +AoA -> nose down
   const yawStabTorque = qBarRaw * c.yawStab * slipOff; // +slip (wind from right) -> yaw right, reduces slip
 
-  // Control gain: full throw must be able to exceed the stall AoA
-  // (equilibrium AoA ~= maneuver/stab * gain = 0.3 rad = 17 deg > 16 deg crit).
+  // Full throw retains authority beyond critical AoA; damping limits the
+  // transient rate, not the attainable AoA (maneuver / stab * gain).
   const CTRL_GAIN = 0.15;
   const pitchCtrlTorque = qBar * c.pitchManeuver * (controls.elevator ?? 0) * CTRL_GAIN;
   const rollCtrlTorque = qBar * c.rollManeuver * (controls.aileron ?? 0) * CTRL_GAIN;
   const yawCtrlTorque = qBar * c.yawManeuver * (controls.rudder ?? 0) * CTRL_GAIN;
 
   // Rotational damping (FLT-312 analog): opposes angular rates.
-  const pitchDampTorque = -qBar * c.pitchDamp * 0.01 * (rates.pitchRateRadS ?? 0);
-  const yawDampTorque = -qBar * c.yawDamp * 0.01 * (rates.yawRateRadS ?? 0);
-  const rollDampTorque = -qBar * c.rollDamp * 0.01 * (rates.rollRateRadS ?? 0);
+  // Pitch rate damping uses normalized angular rate ~rate/V: a rotating
+  // tail's incidence changes with rate/V, so its damping moment scales with V,
+  // not V². Cap the speed at the same authority limit as control qBar. This
+  // algebraic form is finite at rest and does not invent static aero torque.
+  const dampingSpeed = Math.min(v, Math.sqrt((2 * c.qBarCapPa) / rho));
+  const pitchDampPressure = 0.5 * rho * dampingSpeed * PITCH_DAMP_REFERENCE_SPEED_M_S;
+  const pitchDampTorque = -pitchDampPressure * c.pitchDamp * (rates.pitchRateRadS ?? 0);
+  const yawDampTorque = -qBar * c.yawDamp * (rates.yawRateRadS ?? 0);
+  const rollDampTorque = -qBar * c.rollDamp * (rates.rollRateRadS ?? 0);
 
   return {
     forceBody,

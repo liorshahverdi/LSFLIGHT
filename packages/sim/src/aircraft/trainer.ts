@@ -43,8 +43,9 @@ const TRAINER_GEAR_CONFIG = {
   maxSteerDeg: 25,
 };
 
+/** Classify downward contact-point velocity; upward motion is not an impact. */
 export function classifyTouchdown(sinkRate: number): TouchdownRating {
-  const s = Math.abs(sinkRate);
+  const s = Math.max(0, -sinkRate);
   if (s < 3) return "GOOD";
   if (s < 6) return "HARD";
   if (s < 8) return "DAMAGING";
@@ -71,7 +72,8 @@ export interface TrainerAircraft {
   lastAirflow: AirflowState;
   /** True once a crash condition has triggered; thrust is then disabled. */
   crashed: boolean;
-  lastTouchdown: { rating: TouchdownRating; sinkRate: number; t: number };
+  /** Latest contact transition (including parked contact at t=0); bounces report anew. */
+  lastTouchdown: { rating: TouchdownRating; sinkRate: number; t: number } | null;
   terrain: TerrainProvider;
   step(dt: number, cmd?: FlightCommand): void;
 }
@@ -94,9 +96,12 @@ export const TRAINER_AERO: AeroCoeffs = {
   pitchManeuver: 15.0,
   yawManeuver: 15.0,
   rollManeuver: 3.0,
-  pitchDamp: 8.0,
-  yawDamp: 10.0,
-  rollDamp: 5.0,
+  // At rotation q~2000 Pa, pitch-rate decay is ~0.45 s rather than ~87 s.
+  // Normalized-rate damping also arrests rotation as IAS falls in a stall.
+  pitchDamp: 15.0,
+  // Preserve existing yaw/roll torque after removing the percentage scale.
+  yawDamp: 0.1,
+  rollDamp: 0.05,
   qBarCapPa: 15_000,
 };
 
@@ -143,7 +148,7 @@ export function createTrainer(spawn?: {
     body,
     engine,
     crashed: false,
-    lastTouchdown: { rating: "GOOD", sinkRate: 0, t: 0 },
+    lastTouchdown: null,
     terrain: spawn?.terrain ?? DEV_TERRAIN,
     coeffs: TRAINER_AERO,
     lastAirflow: {
@@ -215,10 +220,11 @@ export function createTrainer(spawn?: {
       );
       const thrustForce = quatRotate(body.att, vec3(0, 0, -engineOut.thrustN));
       const gravity = vec3(0, -9.80665 * body.mass, 0);
+      const aeroForce = quatRotate(body.att, aero.forceBody);
       body.forceAccum = {
-        x: aero.forceBody.x + thrustForce.x + gravity.x,
-        y: aero.forceBody.y + thrustForce.y + gravity.y,
-        z: aero.forceBody.z + thrustForce.z + gravity.z,
+        x: aeroForce.x + thrustForce.x + gravity.x,
+        y: aeroForce.y + thrustForce.y + gravity.y,
+        z: aeroForce.z + thrustForce.z + gravity.z,
       };
       body.torqueAccum = aero.torqueBody;
 
@@ -227,11 +233,13 @@ export function createTrainer(spawn?: {
         brake: cmd.brake ?? 0,
         rudder: cmd.rudder ?? 0,
       });
-      if (gear.last.anyOnGround && !wasOnGround && ac.lastTouchdown.t === 0) {
-        // First touchdown event latches (bounces don't rewrite history).
+      if (gear.last.anyOnGround && !wasOnGround) {
         const rating = classifyTouchdown(gear.last.sinkRate);
         ac.lastTouchdown = { rating, sinkRate: gear.last.sinkRate, t: tickTime };
-        if (rating === "CRASH") ac.crashed = true;
+      }
+      // Safety must not be gated by event history, even during continuous contact.
+      if (gear.last.anyOnGround && classifyTouchdown(gear.last.sinkRate) === "CRASH") {
+        ac.crashed = true;
       }
       wasOnGround = gear.last.anyOnGround;
       tickTime += dt;

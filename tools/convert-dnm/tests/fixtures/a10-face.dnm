@@ -1,0 +1,20 @@
+# Excerpt from YSFLIGHT/runtime/aircraft/a10.dnm, first PCK.
+# Original face indices [0, 15, 22], remapped to 0 1 2; vertex/normal/color lines unchanged.
+# Copyright 2022 Soji Yamakawa; BSD-3-Clause, see repository NOTICE.md.
+DYNAMODEL
+DNMVER 1
+PCK "excerpt" 10
+Surf
+V 0 -0.12 6.68 R
+V -0.35 -0.12 6.27 R
+V -0.34 0.06 6.27 R
+F
+V 0 1 2
+N -0.23 -0.06 6.406667 -0.759 0.04 0.649
+C 0 65 0
+E
+E
+SRF "excerpt"
+FIL "excerpt"
+POS 0 0 0 0 0 0
+END

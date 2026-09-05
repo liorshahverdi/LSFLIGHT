@@ -109,3 +109,8 @@ export function bodyAxes(q: Quat): BodyAxes {
     right: quatRotate(q, vec3(1, 0, 0)),
   };
 }
+
+/** Rotate a world-frame vector into body frame by a unit attitude quaternion. */
+export function quatInverseRotate(q: Quat, v: Vec3): Vec3 {
+  return quatRotate({ x: -q.x, y: -q.y, z: -q.z, w: q.w }, v);
+}

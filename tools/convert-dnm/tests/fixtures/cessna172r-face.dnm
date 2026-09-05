@@ -1,0 +1,20 @@
+# Excerpt from YSFLIGHT/runtime/aircraft/cessna172r.dnm, first PCK.
+# Original face indices [2, 11, 92], remapped to 0 1 2; vertex/normal/color lines unchanged.
+# Copyright 2022 Soji Yamakawa; BSD-3-Clause, see repository NOTICE.md.
+DYNAMODEL
+DNMVER 1
+PCK "excerpt" 10
+Surf
+V 0.0000000000000000 0.1851500300820000 3.6259701603550001
+V -0.2301470803720000 0.1743433643250000 3.6259701603550001
+V -0.1129940369120000 0.1410835034670000 3.7478011457029998
+F
+V 0 1 2
+N 0 0 0 -0.044701 0.951981 0.302875
+C 255 255 255 255
+E
+E
+SRF "excerpt"
+FIL "excerpt"
+POS 0 0 0 0 0 0
+END

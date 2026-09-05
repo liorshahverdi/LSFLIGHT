@@ -1,11 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { TrainerAircraft, createTrainer } from "../src/aircraft/trainer.js";
-import { vec3, quatFromEulerYxzDeg } from "../src/physics/frames.js";
+import {
+  vec3,
+  quatFromEulerYxzDeg,
+  quatRotate,
+  quatMultiply,
+  bodyAxes,
+} from "../src/physics/frames.js";
 
 const DT = 1 / 60;
 
 function spawnCruising(): TrainerAircraft {
-  // Spawn trimmed: 60 m/s level flight at 1000 m, pitched to trim AoA (1.4°).
+  // Near-trim cruise: 58 m/s level velocity at 1000 m, 2° pitch.
   return createTrainer({
     pos: vec3(0, 1000, 0),
     att: quatFromEulerYxzDeg({ yaw: 0, pitch: 2.0, roll: 0 }),
@@ -25,10 +31,8 @@ describe("Trainer aircraft integration (FLT-209)", () => {
       maxAlt = Math.max(maxAlt, ac.body.pos.y);
     }
     expect(Number.isFinite(minAlt)).toBe(true);
-    // KNOWN ISSUE (FLT-209 follow-up): phugoid slowly gains amplitude.
-    // v0.1 asserts boundedness over 60 s, not station-keeping.
-    expect(ac.body.pos.y).toBeLessThan(7000);
-    expect(minAlt).toBeGreaterThan(500);
+    expect(minAlt).toBeGreaterThan(940);
+    expect(maxAlt).toBeLessThan(1060);
     expect(Number.isFinite(ac.body.vel.y)).toBe(true);
     expect(ac.lastAirflow.airspeed).toBeGreaterThan(15); // still flying, not ballistic
   });
@@ -42,8 +46,22 @@ describe("Trainer aircraft integration (FLT-209)", () => {
     for (let i = 0; i < 60 * 20; i++) {
       descender.step(DT, { throttle: 0.1 });
     }
-    expect(climber.body.pos.y).toBeGreaterThan(1050); // climbs despite phugoid drift
+    // Rate damping removes the old >50 m pitch transient. Test a sustained
+    // throttle response, not altitude gained during an underdamped excursion.
+    expect(climber.body.pos.y).toBeGreaterThan(1010);
+    expect(climber.body.vel.y).toBeGreaterThan(0);
     expect(descender.body.pos.y).toBeLessThan(995);
+    expect(descender.body.vel.y).toBeLessThan(0);
+    const climbAt20 = climber.body.pos.y;
+    const descentAt20 = descender.body.pos.y;
+    for (let i = 0; i < 60 * 40; i++) {
+      climber.step(DT, { throttle: 1 });
+      descender.step(DT, { throttle: 0.1 });
+      expect(climber.body.vel.y).toBeGreaterThan(0);
+      expect(descender.body.vel.y).toBeLessThan(0);
+    }
+    expect((climber.body.pos.y - climbAt20) / 40).toBeGreaterThan(1);
+    expect((descender.body.pos.y - descentAt20) / 40).toBeLessThan(-1);
     expect(descender.body.pos.y).toBeGreaterThan(500); // controlled glide
   });
 
@@ -55,25 +73,71 @@ describe("Trainer aircraft integration (FLT-209)", () => {
       peakPitchRate = Math.max(peakPitchRate, ac.body.angVel.x);
     }
     expect(peakPitchRate).toBeGreaterThan(0.02); // ~1+ deg/s pitch response
+    const releaseError = Math.abs(ac.lastAirflow.aoaDeg - ac.coeffs.trimAoADeg);
     for (let i = 0; i < 60 * 5; i++) ac.step(DT);
-    // After release the aircraft settles back near level pitch attitude.
-    expect(Math.abs(ac.body.angVel.x)).toBeLessThan(0.2);
+    // Release removes rotation and restores aerodynamic trim, not an attitude lock.
+    expect(Math.abs(ac.body.angVel.x)).toBeLessThan(peakPitchRate * 0.1);
+    expect(Math.abs(ac.lastAirflow.aoaDeg - ac.coeffs.trimAoADeg)).toBeLessThan(releaseError);
+    expect(Math.abs(ac.lastAirflow.aoaDeg - ac.coeffs.trimAoADeg)).toBeLessThan(1);
   });
 
-  it("stalls when slow with high AoA, recovers when the nose is lowered", () => {
-    const ac = spawnCruising();
-    // Bleed energy: idle throttle, hold nose up.
-    for (let i = 0; i < 60 * 45; i++) {
-      ac.step(DT, { throttle: 0, elevator: 0.85 });
-    }
-    expect(ac.lastAirflow.aoaDeg).toBeGreaterThan(14); // at/near critical AoA
-    // Recover: nose down, full throttle.
-    for (let i = 0; i < 60 * 15; i++) {
-      ac.step(DT, { throttle: 1, elevator: -0.6 });
-    }
-    expect(ac.lastAirflow.aoaDeg).toBeLessThan(10);
-    expect(Number.isFinite(ac.body.pos.y)).toBe(true);
-  });
+  it.each([25, 58])(
+    "stalls from %s m/s and genuinely recovers with normal pitch/throttle controls",
+    (speed) => {
+      const ac = createTrainer({
+        pos: vec3(0, 1000, 0),
+        att: quatFromEulerYxzDeg({ yaw: 0, pitch: 2, roll: 0 }),
+        vel: vec3(0, 0, -speed),
+      });
+      // Include both representative near-level slow flight and the original
+      // cruise/full-up stress case; do not hide it by changing the starting state.
+      let stallTime = 0;
+      while (stallTime < 10 && ac.lastAirflow.aoaDeg < ac.coeffs.criticalAoAPositiveDeg) {
+        ac.step(DT, { throttle: 0, elevator: 0.85 });
+        stallTime += DT;
+      }
+      expect(stallTime).toBeLessThan(10);
+      expect(ac.lastAirflow.aoaDeg).toBeGreaterThanOrEqual(ac.coeffs.criticalAoAPositiveDeg);
+      expect(ac.lastAirflow.airspeed).toBeLessThan(45);
+      expect(ac.crashed).toBe(false);
+      const stallAltitude = ac.body.pos.y;
+      let minAltitude = stallAltitude;
+
+      // Script normal recovery: full power, lower nose, level off after forward
+      // speed returns. FLT-1204 specifies controlled recovery within 25 seconds.
+      // AoA=0 alone is NOT recovery: airflow reports zero during a tailslide.
+      let recoveryTime = 0;
+      while (recoveryTime < 25) {
+        const forward = bodyAxes(ac.body.att).forward;
+        const pitch = (Math.atan2(forward.y, -forward.z) * 180) / Math.PI;
+        const targetPitch = ac.lastAirflow.velBody.z < -30 ? 2 : -5;
+        const elevator = Math.max(
+          -1,
+          Math.min(1, 0.05 * (targetPitch - pitch) - (0.02 * ac.body.angVel.x * 180) / Math.PI),
+        );
+        ac.step(DT, { throttle: 1, elevator });
+        recoveryTime += DT;
+        minAltitude = Math.min(minAltitude, ac.body.pos.y);
+        expect(Math.abs(pitch)).toBeLessThan(75);
+        expect(ac.crashed).toBe(false);
+        if (
+          ac.lastAirflow.velBody.z < -40 &&
+          Math.abs(ac.lastAirflow.aoaDeg) < 10 &&
+          ac.body.vel.y > -5 &&
+          Math.abs(pitch) < 20 &&
+          Math.abs(ac.body.angVel.x) < 0.1
+        )
+          break;
+      }
+      expect(recoveryTime).toBeLessThan(25);
+      expect(minAltitude).toBeLessThan(stallAltitude);
+      expect(ac.lastAirflow.velBody.z).toBeLessThan(-40);
+      expect(Math.abs(ac.lastAirflow.aoaDeg)).toBeLessThan(10);
+      expect(ac.body.vel.y).toBeGreaterThan(-5);
+      expect(ac.lastTouchdown).toBeNull();
+      for (const value of Object.values(ac.body.pos)) expect(Number.isFinite(value)).toBe(true);
+    },
+  );
 
   it("is deterministic: identical runs produce identical final states", () => {
     const a = spawnCruising();
@@ -93,5 +157,37 @@ describe("Trainer aircraft integration (FLT-209)", () => {
     const before = ac.engine.fuelKg;
     for (let i = 0; i < 60 * 10; i++) ac.step(DT, { throttle: 0.8 });
     expect(ac.engine.fuelKg).toBeLessThan(before);
+  });
+});
+
+describe("Trainer force frames", () => {
+  it("heading rotation gives the same trajectory rotated about world up", () => {
+    const q = quatFromEulerYxzDeg({ yaw: 90, pitch: 0, roll: 0 });
+    const a = spawnCruising();
+    const b = createTrainer({
+      pos: { ...a.body.pos },
+      att: quatMultiply(q, a.body.att),
+      vel: quatRotate(q, a.body.vel),
+    });
+    for (let i = 0; i < 600; i++) {
+      a.step(DT);
+      b.step(DT);
+    }
+    const pos = quatRotate(q, a.body.pos);
+    const vel = quatRotate(q, a.body.vel);
+    for (const axis of ["x", "y", "z"] as const) {
+      expect(b.body.pos[axis]).toBeCloseTo(pos[axis], 7);
+      expect(b.body.vel[axis]).toBeCloseTo(vel[axis], 7);
+    }
+  });
+
+  it("positive bank tilts lift toward world left, not world up", () => {
+    const level = createTrainer();
+    const banked = createTrainer({ att: quatFromEulerYxzDeg({ yaw: 0, pitch: 0, roll: 60 }) });
+    level.step(DT, { throttle: 0 });
+    banked.step(DT, { throttle: 0 });
+    const liftDelta = level.body.vel.y + 9.80665 * DT;
+    expect(banked.body.vel.x).toBeCloseTo(-Math.sin(Math.PI / 3) * liftDelta, 7);
+    expect(banked.body.vel.y + 9.80665 * DT).toBeCloseTo(0.5 * liftDelta, 7);
   });
 });

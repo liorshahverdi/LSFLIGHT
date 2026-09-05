@@ -9,19 +9,17 @@
   ],
   "scripts": {
     "build": "tsc -b packages/sim packages/input packages/render tools/convert-dat tools/convert-dnm tools/convert-fld",
-    "typecheck": "npm run build",
+    "typecheck": "npm run build && tsc --noEmit -p packages/app",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test && npm run test:e2e",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test && npm run build:app && npm run test:e2e",
     "dev": "vite --config packages/app/vite.config.ts --port 5175 --strictPort",
     "build:app": "vite build --config packages/app/vite.config.ts",
     "test:e2e": "playwright test",
-    "predev": "fuser -k 5175/tcp 2>/dev/null || lsof -ti tcp:5175 | xargs kill -9 2>/dev/null || true",
-    "kill:port": "lsof -ti tcp:5175 | xargs kill -9 2>/dev/null || true",
-    "pretest:e2e": "lsof -ti tcp:5175 | xargs kill -9 2>/dev/null || true"
+    "generate:models": "tsc -b tools/convert-dnm && node tools/convert-dnm/dist/cli.js YSFLIGHT/runtime/aircraft/cessna172r.dnm assets/generated/models/cessna172r.mesh.json && node tools/convert-dnm/dist/cli.js YSFLIGHT/runtime/aircraft/a10.dnm assets/generated/models/a10.mesh.json"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

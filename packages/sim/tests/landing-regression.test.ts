@@ -61,7 +61,7 @@ export function flyLanding(): LandingResult {
       ac.step(DT, { throttle, elevator });
       // Use the simulation's actual gear-contact event, not body altitude:
       // the fuselage can be low while the wheels are still airborne.
-      if (ac.lastTouchdown.t > 0) touchedDown = true;
+      if (ac.lastTouchdown !== null) touchedDown = true;
     } else {
       ac.step(DT, { throttle: 0, brake: 1, elevator: 0 });
       if (Math.hypot(b.vel.x, b.vel.z) < 0.5) stopped = true;
@@ -76,14 +76,15 @@ describe("Landing regression (FLT-1205)", () => {
     const { ac, touchedDown, stopped } = flyLanding();
     expect(touchedDown).toBe(true);
     expect(ac.crashed).toBe(false);
-    expect(ac.lastTouchdown.rating).toBe("GOOD");
+    expect(ac.lastTouchdown!.rating).toBe("GOOD");
     expect(stopped).toBe(true);
     // Stopped within the runway footprint.
     expect(Math.abs(ac.body.pos.z)).toBeLessThan(700);
   });
 
   it("touchdown sink rate is gentle (< 3 m/s)", () => {
-    const { ac } = flyLanding();
-    expect(Math.abs(ac.lastTouchdown.sinkRate)).toBeLessThan(3);
+    const { ac, touchedDown } = flyLanding();
+    expect(touchedDown).toBe(true);
+    expect(Math.abs(ac.lastTouchdown!.sinkRate)).toBeLessThan(3);
   });
 });
