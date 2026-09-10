@@ -95,13 +95,16 @@ export const TRAINER_AERO: AeroCoeffs = {
   trimAoADeg: 1.745,
   pitchManeuver: 15.0,
   yawManeuver: 15.0,
-  rollManeuver: 3.0,
+  // Useful low-speed A/D authority, paired with damping below so release
+  // arrests the roll instead of letting a stronger input spin indefinitely.
+  rollManeuver: 24.0,
   // At rotation q~2000 Pa, pitch-rate decay is ~0.45 s rather than ~87 s.
   // Normalized-rate damping also arrests rotation as IAS falls in a stall.
   pitchDamp: 15.0,
-  // Preserve existing yaw/roll torque after removing the percentage scale.
+  // Preserve existing yaw torque after removing the percentage scale.
   yawDamp: 0.1,
-  rollDamp: 0.05,
+  // Full-aileron steady rate ~0.36 rad/s (21 deg/s); no auto-leveling.
+  rollDamp: 10.0,
   qBarCapPa: 15_000,
 };
 

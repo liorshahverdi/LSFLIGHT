@@ -6,6 +6,7 @@ import {
   quatRotate,
   quatMultiply,
   bodyAxes,
+  quatToEulerYxzDeg,
 } from "../src/physics/frames.js";
 
 const DT = 1 / 60;
@@ -21,6 +22,23 @@ function spawnCruising(): TrainerAircraft {
 }
 
 describe("Trainer aircraft integration (FLT-209)", () => {
+  it.each([25, 58])("aileron gives usable bank at %s m/s and settles after release", (speed) => {
+    for (const direction of [-1, 1]) {
+      const ac = spawnCruising();
+      ac.body.vel = vec3(0, 0, -speed);
+      for (let i = 0; i < 60 * 3; i++) ac.step(DT, { aileron: direction });
+      const bank = quatToEulerYxzDeg(ac.body.att).roll * direction;
+      // Low-speed steering should reach a useful bank in a short held input;
+      // cruise should remain manageable rather than roll straight into inversion.
+      expect(bank).toBeGreaterThan(speed === 25 ? 25 : 45);
+      expect(bank).toBeLessThan(65);
+      for (let i = 0; i < 60 * 4; i++) ac.step(DT);
+      expect(Math.abs(ac.body.angVel.z)).toBeLessThan(Math.PI / 180);
+      expect(Math.abs(quatToEulerYxzDeg(ac.body.att).roll)).toBeLessThan(75);
+      expect(ac.crashed).toBe(false);
+    }
+  });
+
   it("trimmed cruise holds altitude within ±60 m over 60 s with zero input", () => {
     const ac = spawnCruising();
     let minAlt = Infinity;
